@@ -130,7 +130,7 @@ object SampleNotebooks {
                     cellType = CellType.MARKDOWN,
                     source = """
                         # Spectral Attention & Cosine Warmup Analysis
-                        Welcome to **Lumina Notebook**. You can inspect, edit, reorder, run, and save any `.ipynb` cell with full **Liquid Glass** clarity.
+                        Welcome to **Lumina Notebook**. You can inspect, edit, reorder, and save any `.ipynb` cell with full **Liquid Glass** clarity.
                         
                         - **Tap any cell** to inspect or edit its source code or Markdown.
                         - **Use the top bar** to **Save**, **Save As…**, **Rename**, or toggle **Raw JSON**.
@@ -232,7 +232,7 @@ object SampleNotebooks {
                         # Global Renewable Grid Telemetry (2026 Cohort)
                         Exploratory time-series aggregation of solar, wind, and hydro storage capacity across regional microgrids.
                         
-                        > **Tip:** Try editing the numbers in the code cell below and tapping the **Run Cell** button to recompute the output live!
+                        > **Tip:** Tap any cell below to edit its code or markdown notes, then use **Save** or **Save As…** in the top bar.
                     """.trimIndent()
                 ),
                 NotebookCell(

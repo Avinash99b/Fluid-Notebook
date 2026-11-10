@@ -276,30 +276,6 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun runCodeCell(cellId: String) {
-        _activeNotebook.update { state ->
-            if (state == null) return@update null
-            val maxExec = state.notebook.cells.mapNotNull { it.executionCount }.maxOrNull() ?: 0
-            val nextExec = maxExec + 1
-            val updatedCells = state.notebook.cells.map { cell ->
-                if (cell.id == cellId && cell.cellType == CellType.CODE) {
-                    val newOutputs = IpynbParser.evaluateCodeCellLocally(cell.source, nextExec)
-                    cell.copy(
-                        executionCount = nextExec,
-                        outputs = newOutputs,
-                        isOutputCollapsed = false
-                    )
-                } else cell
-            }
-            val updatedNotebook = state.notebook.copy(cells = updatedCells)
-            state.copy(
-                notebook = updatedNotebook,
-                isDirty = true,
-                rawJsonDraft = IpynbParser.serialize(updatedNotebook)
-            )
-        }
-    }
-
     fun addCellAt(index: Int, cellType: CellType) {
         _activeNotebook.update { state ->
             if (state == null) return@update null

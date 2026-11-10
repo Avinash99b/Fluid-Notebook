@@ -188,13 +188,6 @@ fun LuminaNotebookApp(viewModel: NotebookViewModel) {
                                 onSetEditingCell = viewModel::setEditingCell,
                                 onUpdateCellSource = viewModel::updateCellSource,
                                 onChangeCellType = viewModel::changeCellType,
-                                onRunCell = viewModel::runCodeCell,
-                                onRunAllCells = {
-                                    editorState.notebook.cells
-                                        .filter { it.cellType == CellType.CODE }
-                                        .forEach { cell -> viewModel.runCodeCell(cell.id) }
-                                    viewModel.showMessage("Executed all code cells")
-                                },
                                 onAddCellAt = viewModel::addCellAt,
                                 onDuplicateCell = viewModel::duplicateCell,
                                 onMoveCell = viewModel::moveCell,

@@ -106,8 +106,6 @@ fun NotebookEditorScreen(
     onSetEditingCell: (String?) -> Unit,
     onUpdateCellSource: (cellId: String, newSource: String) -> Unit,
     onChangeCellType: (cellId: String, newType: CellType) -> Unit,
-    onRunCell: (cellId: String) -> Unit,
-    onRunAllCells: () -> Unit,
     onAddCellAt: (index: Int, cellType: CellType) -> Unit,
     onDuplicateCell: (cellId: String) -> Unit,
     onMoveCell: (cellId: String, delta: Int) -> Unit,
@@ -303,7 +301,6 @@ fun NotebookEditorScreen(
                                     onChangeCellType = { newType ->
                                         onChangeCellType(cell.id, newType)
                                     },
-                                    onRunCell = { onRunCell(cell.id) },
                                     onMoveUp = { onMoveCell(cell.id, -1) },
                                     onMoveDown = { onMoveCell(cell.id, 1) },
                                     onDuplicateCell = { onDuplicateCell(cell.id) },
@@ -340,7 +337,6 @@ fun NotebookEditorScreen(
                                 listState.animateScrollToItem(state.notebook.cells.size)
                             }
                         },
-                        onRunAllCells = onRunAllCells,
                         onSaveClick = onSaveClick,
                         onSaveAsClick = { showSaveAsDialog = true },
                         modifier = Modifier
@@ -386,6 +382,10 @@ fun NotebookEditorScreen(
             onDismiss = { showUnsavedExitDialog = false },
             confirmButtonText = stringResource(R.string.btn_save_and_exit),
             dismissButtonText = stringResource(R.string.btn_discard),
+            onDismissButton = {
+                showUnsavedExitDialog = false
+                onNavigateBack()
+            },
             onConfirm = {
                 showUnsavedExitDialog = false
                 onSaveAndExit()
@@ -396,9 +396,14 @@ fun NotebookEditorScreen(
                 horizontalArrangement = Arrangement.End
             ) {
                 Text(
-                    text = "Or tap outside to keep editing",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = "Keep Editing",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { showUnsavedExitDialog = false }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .testTag("keep_editing_button")
                 )
             }
         }
@@ -837,7 +842,6 @@ private fun FloatingEditorBottomDock(
     isDirty: Boolean,
     onAddCodeCell: () -> Unit,
     onAddMarkdownCell: () -> Unit,
-    onRunAllCells: () -> Unit,
     onSaveClick: () -> Unit,
     onSaveAsClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -871,15 +875,6 @@ private fun FloatingEditorBottomDock(
                 isPrimary = false,
                 accentColor = glass.badgeMarkdown,
                 modifier = Modifier.testTag("dock_add_markdown_button")
-            )
-
-            LiquidGlassPillButton(
-                text = "Run All",
-                icon = Icons.Filled.PlayArrow,
-                onClick = onRunAllCells,
-                isPrimary = false,
-                accentColor = glass.badgeSaved,
-                modifier = Modifier.testTag("dock_run_all_button")
             )
 
             LiquidGlassPillButton(

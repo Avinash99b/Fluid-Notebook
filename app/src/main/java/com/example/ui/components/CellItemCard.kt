@@ -87,7 +87,6 @@ fun CellItemCard(
     onToggleEdit: () -> Unit,
     onSourceChange: (String) -> Unit,
     onChangeCellType: (CellType) -> Unit,
-    onRunCell: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onDuplicateCell: () -> Unit,
@@ -172,22 +171,6 @@ fun CellItemCard(
 
                 // Right Cell Action Icons
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (cell.cellType == CellType.CODE) {
-                        IconButton(
-                            onClick = onRunCell,
-                            modifier = Modifier
-                                .size(36.dp)
-                                .testTag("run_cell_button_$cellIndex")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.PlayArrow,
-                                contentDescription = "Execute code cell",
-                                tint = glass.badgeSaved,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-
                     IconButton(
                         onClick = onToggleEdit,
                         modifier = Modifier
@@ -346,26 +329,12 @@ fun CellItemCard(
                                         )
                                     }
 
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        if (cell.cellType == CellType.CODE) {
-                                            LiquidGlassPillButton(
-                                                text = "Run & Preview",
-                                                icon = Icons.Filled.PlayArrow,
-                                                onClick = {
-                                                    onRunCell()
-                                                    onToggleEdit()
-                                                },
-                                                isPrimary = true,
-                                                accentColor = glass.badgeSaved
-                                            )
-                                        }
-                                        LiquidGlassPillButton(
-                                            text = "Done",
-                                            icon = Icons.Filled.Check,
-                                            onClick = onToggleEdit,
-                                            isPrimary = cell.cellType != CellType.CODE
-                                        )
-                                    }
+                                    LiquidGlassPillButton(
+                                        text = "Done",
+                                        icon = Icons.Filled.Check,
+                                        onClick = onToggleEdit,
+                                        isPrimary = true
+                                    )
                                 }
                             }
                         } else {

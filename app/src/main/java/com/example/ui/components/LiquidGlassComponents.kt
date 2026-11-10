@@ -403,6 +403,7 @@ fun LiquidGlassDialog(
     confirmButtonText: String,
     onConfirm: () -> Unit,
     dismissButtonText: String = "Cancel",
+    onDismissButton: () -> Unit = onDismiss,
     isDestructive: Boolean = false,
     content: @Composable () -> Unit = {}
 ) {
@@ -451,7 +452,7 @@ fun LiquidGlassDialog(
                 ) {
                     LiquidGlassPillButton(
                         text = dismissButtonText,
-                        onClick = onDismiss,
+                        onClick = onDismissButton,
                         isPrimary = false,
                         modifier = Modifier.testTag("dialog_cancel_button")
                     )

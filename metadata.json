@@ -1,0 +1,6 @@
+{
+  "name": "Lumina Notebook",
+  "description": "A minimalist liquid-glass Jupyter (.ipynb) viewer and editor for Android with smooth motion animations, syntax highlighting, cell editing, Save/Save As, and adaptive Light & Dark modes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

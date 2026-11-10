@@ -1,0 +1,36 @@
+<resources>
+    <string name="app_name">Lumina Notebook</string>
+    <string name="home_subtitle">Liquid-Glass Jupyter (.ipynb) Studio</string>
+    <string name="select_file">Select .ipynb File</string>
+    <string name="new_notebook">New Notebook</string>
+    <string name="load_samples">Restore Sample Notebooks</string>
+    <string name="recent_files">Recently Opened</string>
+    <string name="clear_all">Clear All</string>
+    <string name="search_recent_hint">Filter recent notebooks by name or kernel…</string>
+    <string name="empty_recent_title">No Recent Notebooks</string>
+    <string name="empty_recent_subtitle">Tap Select .ipynb File to open a Jupyter notebook from your device, create a fresh notebook, or explore preloaded sample notebooks.</string>
+    <string name="action_save">Save</string>
+    <string name="action_save_as">Save As…</string>
+    <string name="action_rename">Rename</string>
+    <string name="action_export_json">Inspect Raw JSON</string>
+    <string name="action_add_code_cell">Add Code Cell</string>
+    <string name="action_add_markdown_cell">Add Markdown Cell</string>
+    <string name="action_clear_outputs">Clear All Outputs</string>
+    <string name="action_duplicate_notebook">Duplicate Notebook</string>
+    <string name="unsaved_changes">Unsaved edits</string>
+    <string name="saved_clean">All changes saved</string>
+    <string name="dialog_rename_title">Rename Notebook</string>
+    <string name="dialog_new_notebook_title">Create New Notebook</string>
+    <string name="dialog_clear_all_title">Clear Recent History?</string>
+    <string name="dialog_clear_all_message">This will remove all notebooks from your Recently Opened list. External files on your device will not be deleted.</string>
+    <string name="dialog_unsaved_title">Unsaved Changes</string>
+    <string name="dialog_unsaved_message">You have unsaved changes in this notebook. Would you like to save before returning home?</string>
+    <string name="btn_save_and_exit">Save &amp; Exit</string>
+    <string name="btn_discard">Discard</string>
+    <string name="btn_cancel">Cancel</string>
+    <string name="btn_confirm">Confirm</string>
+    <string name="btn_create">Create</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="theme_system">Auto</string>
+</resources>

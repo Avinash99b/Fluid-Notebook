@@ -34,15 +34,19 @@ jobs:
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          distribution: "temurin"
+          distribution: temurin
           java-version: "21"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: |-
+            platform-tools
+            platforms;android-36
+            build-tools;36.0.0
 
       - name: Accept Android SDK licenses
-        run: |
-          yes | sdkmanager --licenses > /dev/null || true
+        run: yes | sdkmanager --licenses > /dev/null || true
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -51,14 +55,12 @@ jobs:
 
       - name: Prepare environment and debug keystore
         run: |
-          # Ensure .env exists for Secrets Gradle Plugin
           if [ ! -f ".env" ] && [ -f ".env.example" ]; then
             cp .env.example .env
           elif [ ! -f ".env" ]; then
             touch .env
           fi
 
-          # Ensure debug.keystore exists in project root as required by app/build.gradle.kts signingConfigs.debugConfig
           if [ ! -f "debug.keystore" ]; then
             if [ -f "debug.keystore.base64" ]; then
               base64 -d debug.keystore.base64 > debug.keystore
@@ -78,24 +80,15 @@ jobs:
 
       - name: Run Unit Tests (Optional)
         if: ${{ inputs.run_unit_tests == true }}
-        run: |
-          if [ -x "./gradlew" ]; then
-            ./gradlew :app:testDebugUnitTest --no-daemon
-          else
-            gradle :app:testDebugUnitTest --no-daemon
-          fi
+        run: ./gradlew :app:testDebugUnitTest --no-daemon
 
       - name: Build Debug APK
-        run: |
-          if [ -x "./gradlew" ]; then
-            ./gradlew :app:assembleDebug --no-daemon --stacktrace
-          else
-            gradle :app:assembleDebug --no-daemon --stacktrace
-          fi
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
       - name: Verify APK & Write Build Summary
         run: |
           APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+
           if [ ! -f "$APK_PATH" ]; then
             echo "Error: Debug APK was not found at $APK_PATH"
             exit 1

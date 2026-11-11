@@ -21,23 +21,16 @@ object IpynbParser {
     fun parse(jsonString: String): Result<JupyterNotebook> = runCatching {
         val trimmed = jsonString.trim()
         if (trimmed.isEmpty()) {
-            return@runCatching JupyterNotebook(
-                cells = listOf(
-                    NotebookCell(
-                        cellType = CellType.MARKDOWN,
-                        source = "# Untitled Notebook\nStart adding code or markdown cells below."
-                    ),
-                    NotebookCell(
-                        cellType = CellType.CODE,
-                        source = "print(\"Hello from Lumina Notebook!\")",
-                        executionCount = 1,
-                        outputs = listOf(CellOutput.StreamOutput("stdout", "Hello from Lumina Notebook!\n"))
-                    )
-                )
-            )
+            throw IllegalArgumentException("The selected file is empty.")
+        }
+        if (!trimmed.startsWith("{")) {
+            throw IllegalArgumentException("File does not start with a JSON object ('{').")
         }
 
         val root = JSONObject(trimmed)
+        if (!root.has("cells") && !root.has("nbformat") && !root.has("worksheets")) {
+            throw IllegalArgumentException("JSON document is missing 'cells' or 'nbformat' fields required for a Jupyter .ipynb notebook.")
+        }
         val nbformat = root.optInt("nbformat", 4)
         val nbformatMinor = root.optInt("nbformat_minor", 5)
 

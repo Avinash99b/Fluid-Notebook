@@ -1,6 +1,7 @@
 package com.example
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -8,8 +9,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -29,13 +30,15 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.core.content.IntentCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.model.CellType
 import com.example.ui.components.AnimatedLiquidBackground
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.NotebookEditorScreen
@@ -44,25 +47,54 @@ import com.example.viewmodel.NotebookViewModel
 import com.example.viewmodel.ScreenDestination
 
 class MainActivity : ComponentActivity() {
+
+    private var pendingIncomingUri by mutableStateOf<Uri?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        val incomingUri = if (intent?.action == Intent.ACTION_VIEW) intent?.data else null
+        if (savedInstanceState == null) {
+            pendingIncomingUri = extractNotebookUriFromIntent(intent)
+        }
 
         setContent {
             val notebookViewModel: NotebookViewModel = viewModel()
             val themeMode by notebookViewModel.themeMode.collectAsStateWithLifecycle()
 
-            LaunchedEffect(incomingUri) {
-                if (incomingUri != null) {
-                    notebookViewModel.openExternalFileUri(incomingUri)
+            LaunchedEffect(pendingIncomingUri) {
+                val targetUri = pendingIncomingUri
+                if (targetUri != null) {
+                    notebookViewModel.openExternalFileUri(targetUri)
+                    pendingIncomingUri = null
                 }
             }
 
             LuminaNotebookTheme(themeMode = themeMode) {
                 LuminaNotebookApp(viewModel = notebookViewModel)
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val uri = extractNotebookUriFromIntent(intent)
+        if (uri != null) {
+            pendingIncomingUri = uri
+        }
+    }
+
+    private fun extractNotebookUriFromIntent(intent: Intent?): Uri? {
+        if (intent == null) return null
+        return when (intent.action) {
+            Intent.ACTION_VIEW -> intent.data ?: intent.clipData?.getItemAt(0)?.uri
+            Intent.ACTION_SEND -> {
+                IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+                    ?: intent.clipData?.getItemAt(0)?.uri
+                    ?: intent.data
+            }
+            else -> null
         }
     }
 }
@@ -76,11 +108,12 @@ fun LuminaNotebookApp(viewModel: NotebookViewModel) {
     val selectedFilter by viewModel.selectedFilter.collectAsStateWithLifecycle()
     val activeNotebook by viewModel.activeNotebook.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val isLoadingFile by viewModel.isLoadingFile.collectAsStateWithLifecycle()
+    val fileError by viewModel.fileError.collectAsStateWithLifecycle()
     val snackbarMessage by viewModel.snackbarMessage.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // SAF OpenDocument Launcher for selecting any .ipynb or JSON file from device storage
     val openDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -89,7 +122,6 @@ fun LuminaNotebookApp(viewModel: NotebookViewModel) {
         }
     }
 
-    // SAF CreateDocument Launcher for "Save As..." exporting to device storage
     val saveAsDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/x-ipynb+json")
     ) { uri ->
@@ -112,30 +144,32 @@ fun LuminaNotebookApp(viewModel: NotebookViewModel) {
                 targetState = currentScreen,
                 transitionSpec = {
                     val isOpeningEditor = targetState is ScreenDestination.Editor
+                    val slideSpec = tween<androidx.compose.ui.unit.IntOffset>(
+                        durationMillis = 280,
+                        easing = FastOutSlowInEasing
+                    )
+                    val fadeSpec = tween<Float>(
+                        durationMillis = 240,
+                        easing = FastOutSlowInEasing
+                    )
                     if (isOpeningEditor) {
                         (slideInHorizontally(
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMediumLow
-                            ),
-                            initialOffsetX = { fullWidth -> fullWidth / 4 }
-                        ) + fadeIn(spring(stiffness = Spring.StiffnessMediumLow))) togetherWith
+                            animationSpec = slideSpec,
+                            initialOffsetX = { fullWidth -> fullWidth / 5 }
+                        ) + fadeIn(fadeSpec)) togetherWith
                             (slideOutHorizontally(
-                                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                                targetOffsetX = { fullWidth -> -fullWidth / 6 }
-                            ) + fadeOut(spring(stiffness = Spring.StiffnessMediumLow)))
+                                animationSpec = slideSpec,
+                                targetOffsetX = { fullWidth -> -fullWidth / 7 }
+                            ) + fadeOut(fadeSpec))
                     } else {
                         (slideInHorizontally(
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMediumLow
-                            ),
-                            initialOffsetX = { fullWidth -> -fullWidth / 4 }
-                        ) + fadeIn(spring(stiffness = Spring.StiffnessMediumLow))) togetherWith
+                            animationSpec = slideSpec,
+                            initialOffsetX = { fullWidth -> -fullWidth / 5 }
+                        ) + fadeIn(fadeSpec)) togetherWith
                             (slideOutHorizontally(
-                                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                                targetOffsetX = { fullWidth -> fullWidth / 4 }
-                            ) + fadeOut(spring(stiffness = Spring.StiffnessMediumLow)))
+                                animationSpec = slideSpec,
+                                targetOffsetX = { fullWidth -> fullWidth / 5 }
+                            ) + fadeOut(fadeSpec))
                     }
                 },
                 label = "screenMotionTransition"
@@ -148,11 +182,22 @@ fun LuminaNotebookApp(viewModel: NotebookViewModel) {
                             searchQuery = homeSearchQuery,
                             selectedFilter = selectedFilter,
                             themeMode = themeMode,
+                            isLoadingFile = isLoadingFile,
+                            fileError = fileError,
+                            onDismissFileError = viewModel::dismissFileError,
                             onThemeModeChange = viewModel::setThemeMode,
                             onSearchQueryChange = viewModel::setHomeSearchQuery,
                             onFilterChange = viewModel::setSelectedFilter,
                             onSelectFileClick = {
-                                openDocumentLauncher.launch(arrayOf("*/*"))
+                                openDocumentLauncher.launch(
+                                    arrayOf(
+                                        "application/x-ipynb+json",
+                                        "application/json",
+                                        "application/octet-stream",
+                                        "text/plain",
+                                        "*/*"
+                                    )
+                                )
                             },
                             onCreateNewNotebook = viewModel::createNewNotebook,
                             onOpenRecentNotebook = viewModel::openRecentNotebook,
@@ -169,6 +214,8 @@ fun LuminaNotebookApp(viewModel: NotebookViewModel) {
                             NotebookEditorScreen(
                                 state = editorState,
                                 themeMode = themeMode,
+                                fileError = fileError,
+                                onDismissFileError = viewModel::dismissFileError,
                                 onThemeModeChange = viewModel::setThemeMode,
                                 onNavigateBack = viewModel::navigateHome,
                                 onSaveClick = { viewModel.saveCurrentNotebook() },
@@ -183,7 +230,15 @@ fun LuminaNotebookApp(viewModel: NotebookViewModel) {
                                 onSaveAsWorkspaceCopy = viewModel::saveNotebookAsCopy,
                                 onRenameNotebook = viewModel::renameCurrentNotebook,
                                 onOpenAnotherFileClick = {
-                                    openDocumentLauncher.launch(arrayOf("*/*"))
+                                    openDocumentLauncher.launch(
+                                        arrayOf(
+                                            "application/x-ipynb+json",
+                                            "application/json",
+                                            "application/octet-stream",
+                                            "text/plain",
+                                            "*/*"
+                                        )
+                                    )
                                 },
                                 onSetEditingCell = viewModel::setEditingCell,
                                 onUpdateCellSource = viewModel::updateCellSource,

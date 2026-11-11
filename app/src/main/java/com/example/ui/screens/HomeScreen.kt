@@ -4,18 +4,21 @@ import android.text.format.DateUtils
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -49,13 +52,14 @@ import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -74,10 +78,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.RecentNotebookEntity
+import com.example.ui.components.FileErrorStateBanner
 import com.example.ui.components.LiquidGlassCard
 import com.example.ui.components.LiquidGlassDialog
+import com.example.ui.components.LiquidGlassIconButton
 import com.example.ui.components.LiquidGlassPillButton
 import com.example.ui.components.ThemeModeSegmentedToggle
+import com.example.ui.components.pressableFeedback
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalLiquidGlassColors
 import com.example.ui.theme.ThemeMode
@@ -91,6 +98,9 @@ fun HomeScreen(
     searchQuery: String,
     selectedFilter: RecentFilter,
     themeMode: ThemeMode,
+    isLoadingFile: Boolean,
+    fileError: String?,
+    onDismissFileError: () -> Unit,
     onThemeModeChange: (ThemeMode) -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onFilterChange: (RecentFilter) -> Unit,
@@ -118,15 +128,30 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(horizontal = if (isExpanded) 24.dp else 16.dp)
         ) {
-            // Top Header Row
             HomeTopHeader(
                 themeMode = themeMode,
                 onThemeModeChange = onThemeModeChange,
                 modifier = Modifier.padding(top = 12.dp, bottom = 14.dp)
             )
 
+            // Prominent Error State Banner when an invalid or unreadable file is opened
+            AnimatedVisibility(
+                visible = !fileError.isNullOrBlank(),
+                enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(),
+                exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut()
+            ) {
+                FileErrorStateBanner(
+                    errorMessage = fileError ?: "",
+                    onSelectAnotherFile = {
+                        onDismissFileError()
+                        onSelectFileClick()
+                    },
+                    onDismiss = onDismissFileError,
+                    modifier = Modifier.padding(bottom = 14.dp)
+                )
+            }
+
             if (isExpanded) {
-                // Canonical Two-Pane Layout for Tablets, Foldables & Landscape
                 Row(
                     modifier = Modifier.fillMaxSize(),
                     horizontalArrangement = Arrangement.spacedBy(20.dp)
@@ -139,6 +164,7 @@ fun HomeScreen(
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         HeroSelectFileBanner(
+                            isLoadingFile = isLoadingFile,
                             onSelectFileClick = onSelectFileClick,
                             onNewNotebookClick = { showNewNotebookDialog = true }
                         )
@@ -168,6 +194,7 @@ fun HomeScreen(
                         RecentNotebooksListContent(
                             recentNotebooks = recentNotebooks,
                             totalRecentCount = totalRecentCount,
+                            isLoadingFile = isLoadingFile,
                             onOpenRecentNotebook = onOpenRecentNotebook,
                             onTogglePinNotebook = onTogglePinNotebook,
                             onRemoveRecentNotebook = onRemoveRecentNotebook,
@@ -178,7 +205,6 @@ fun HomeScreen(
                     }
                 }
             } else {
-                // Mobile / Compact Single-Column Fluid Layout
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
@@ -188,6 +214,7 @@ fun HomeScreen(
                 ) {
                     item(key = "hero_banner") {
                         HeroSelectFileBanner(
+                            isLoadingFile = isLoadingFile,
                             onSelectFileClick = onSelectFileClick,
                             onNewNotebookClick = { showNewNotebookDialog = true }
                         )
@@ -208,6 +235,7 @@ fun HomeScreen(
                         item(key = "empty_recent_state") {
                             EmptyRecentFilesCard(
                                 hasTotalItems = totalRecentCount > 0,
+                                isLoadingFile = isLoadingFile,
                                 onSelectFileClick = onSelectFileClick,
                                 onRestoreSamplesClick = onRestoreSamplesClick
                             )
@@ -303,7 +331,8 @@ private fun HomeTopHeader(
                         fontFamily = JetBrainsMonoFontFamily,
                         fontWeight = FontWeight.Bold
                     ),
-                    color = Color.White
+                    color = Color.White,
+                    maxLines = 1
                 )
             }
 
@@ -336,8 +365,10 @@ private fun HomeTopHeader(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HeroSelectFileBanner(
+    isLoadingFile: Boolean,
     onSelectFileClick: () -> Unit,
     onNewNotebookClick: () -> Unit
 ) {
@@ -352,7 +383,6 @@ private fun HeroSelectFileBanner(
         contentPadding = PaddingValues(0.dp)
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
-            // Subtle Liquid Glass Hero Artwork Backdrop
             Image(
                 painter = painterResource(id = R.drawable.img_liquid_hero_1794272812882),
                 contentDescription = null,
@@ -363,7 +393,6 @@ private fun HeroSelectFileBanner(
                 alpha = if (glass.isDark) 0.34f else 0.16f
             )
 
-            // Gradient Overlay for high-contrast typography
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -382,29 +411,26 @@ private fun HeroSelectFileBanner(
                     .fillMaxWidth()
                     .padding(22.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
-                            .border(
-                                1.dp,
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
-                                CircleShape
-                            )
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = "NBFORMAT v4 · LIQUID GLASS ENGINE",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold
-                            ),
-                            color = MaterialTheme.colorScheme.primary
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                            CircleShape
                         )
-                    }
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "NBFORMAT v4 · LIQUID GLASS ENGINE",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -412,7 +438,9 @@ private fun HeroSelectFileBanner(
                 Text(
                     text = "Open, Inspect & Edit Jupyter Notebooks",
                     style = MaterialTheme.typography.headlineLarge,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
@@ -420,21 +448,25 @@ private fun HeroSelectFileBanner(
                 Text(
                     text = "Select any .ipynb file from your device storage to view formatted code, inline plots, and markdown—or edit, rename, and save changes effortlessly.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
                 )
 
                 Spacer(modifier = Modifier.height(18.dp))
 
-                Row(
+                // FlowRow ensures graceful wrapping at 1.3x font scale or on narrow screens
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     LiquidGlassPillButton(
                         text = stringResource(R.string.select_file),
                         icon = Icons.Filled.FolderOpen,
                         onClick = onSelectFileClick,
                         isPrimary = true,
+                        isLoading = isLoadingFile,
                         modifier = Modifier
                             .weight(1f)
                             .testTag("select_file_button")
@@ -445,6 +477,7 @@ private fun HeroSelectFileBanner(
                         icon = Icons.Filled.Add,
                         onClick = onNewNotebookClick,
                         isPrimary = false,
+                        enabled = !isLoadingFile,
                         modifier = Modifier.testTag("new_notebook_button")
                     )
                 }
@@ -486,12 +519,15 @@ private fun StatColumn(value: String, label: String) {
                 fontFamily = JetBrainsMonoFontFamily,
                 fontWeight = FontWeight.Bold
             ),
-            color = MaterialTheme.colorScheme.primary
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1
         )
         Text(
             text = label,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -518,12 +554,15 @@ private fun RecentFilesHeaderAndSearch(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f, fill = false)
             ) {
                 Text(
                     text = stringResource(R.string.recent_files),
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onBackground
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
 
                 Box(
@@ -535,7 +574,8 @@ private fun RecentFilesHeaderAndSearch(
                     Text(
                         text = totalRecentCount.toString(),
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1
                     )
                 }
             }
@@ -556,7 +596,6 @@ private fun RecentFilesHeaderAndSearch(
             }
         }
 
-        // Search Input + Filter Pills
         OutlinedTextField(
             value = searchQuery,
             onValueChange = onSearchQueryChange,
@@ -567,7 +606,9 @@ private fun RecentFilesHeaderAndSearch(
             placeholder = {
                 Text(
                     text = stringResource(R.string.search_recent_hint),
-                    style = MaterialTheme.typography.bodyMedium
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             },
             leadingIcon = {
@@ -579,12 +620,11 @@ private fun RecentFilesHeaderAndSearch(
             },
             trailingIcon = {
                 if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { onSearchQueryChange("") }) {
-                        Icon(
-                            imageVector = Icons.Filled.Clear,
-                            contentDescription = "Clear search query"
-                        )
-                    }
+                    LiquidGlassIconButton(
+                        icon = Icons.Filled.Clear,
+                        contentDescription = "Clear search query",
+                        onClick = { onSearchQueryChange("") }
+                    )
                 }
             },
             shape = RoundedCornerShape(16.dp),
@@ -606,6 +646,7 @@ private fun RecentFilesHeaderAndSearch(
                 val isSelected = selectedFilter == filter
                 Box(
                     modifier = Modifier
+                        .minimumInteractiveComponentSize()
                         .clip(CircleShape)
                         .background(
                             if (isSelected) {
@@ -623,8 +664,12 @@ private fun RecentFilesHeaderAndSearch(
                             },
                             shape = CircleShape
                         )
-                        .clickable { onFilterChange(filter) }
-                        .padding(horizontal = 14.dp, vertical = 7.dp)
+                        .pressableFeedback(
+                            pressedScale = 0.95f,
+                            onClick = { onFilterChange(filter) }
+                        )
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = filter.label,
@@ -635,7 +680,8 @@ private fun RecentFilesHeaderAndSearch(
                             MaterialTheme.colorScheme.onPrimary
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
-                        }
+                        },
+                        maxLines = 1
                     )
                 }
             }
@@ -647,6 +693,7 @@ private fun RecentFilesHeaderAndSearch(
 private fun RecentNotebooksListContent(
     recentNotebooks: List<RecentNotebookEntity>,
     totalRecentCount: Int,
+    isLoadingFile: Boolean,
     onOpenRecentNotebook: (String) -> Unit,
     onTogglePinNotebook: (String, Boolean) -> Unit,
     onRemoveRecentNotebook: (String) -> Unit,
@@ -657,6 +704,7 @@ private fun RecentNotebooksListContent(
     if (recentNotebooks.isEmpty()) {
         EmptyRecentFilesCard(
             hasTotalItems = totalRecentCount > 0,
+            isLoadingFile = isLoadingFile,
             onSelectFileClick = onSelectFileClick,
             onRestoreSamplesClick = onRestoreSamplesClick
         )
@@ -728,7 +776,6 @@ private fun RecentNotebookRowCard(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
-                    // File Emblem
                     Box(
                         modifier = Modifier
                             .size(44.dp)
@@ -775,44 +822,34 @@ private fun RecentNotebookRowCard(
                     }
                 }
 
+                // 48dp touch targets for Pin and Remove
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
+                    LiquidGlassIconButton(
+                        icon = if (item.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                        contentDescription = if (item.isPinned) "Unpin notebook" else "Pin notebook",
                         onClick = onTogglePin,
-                        modifier = Modifier
-                            .size(38.dp)
-                            .testTag("pin_recent_button_$index")
-                    ) {
-                        Icon(
-                            imageVector = if (item.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                            contentDescription = if (item.isPinned) "Unpin notebook" else "Pin notebook",
-                            tint = if (item.isPinned) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                        tint = if (item.isPinned) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        iconSize = 18.dp,
+                        modifier = Modifier.testTag("pin_recent_button_$index")
+                    )
 
-                    IconButton(
+                    LiquidGlassIconButton(
+                        icon = Icons.Outlined.Close,
+                        contentDescription = "Remove from recently opened",
                         onClick = onRemove,
-                        modifier = Modifier
-                            .size(38.dp)
-                            .testTag("remove_recent_button_$index")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Close,
-                            contentDescription = "Remove from recently opened",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        iconSize = 18.dp,
+                        modifier = Modifier.testTag("remove_recent_button_$index")
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Cell Composition Bar & Badges
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -864,14 +901,17 @@ private fun SmallBadgePill(text: String, color: Color) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelSmall,
-            color = color
+            color = color,
+            maxLines = 1
         )
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun EmptyRecentFilesCard(
     hasTotalItems: Boolean,
+    isLoadingFile: Boolean,
     onSelectFileClick: () -> Unit,
     onRestoreSamplesClick: () -> Unit
 ) {
@@ -919,15 +959,16 @@ private fun EmptyRecentFilesCard(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            Row(
+            FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 LiquidGlassPillButton(
                     text = stringResource(R.string.select_file),
                     icon = Icons.Filled.FolderOpen,
                     onClick = onSelectFileClick,
-                    isPrimary = true
+                    isPrimary = true,
+                    isLoading = isLoadingFile
                 )
 
                 LiquidGlassPillButton(
@@ -935,6 +976,7 @@ private fun EmptyRecentFilesCard(
                     icon = Icons.Outlined.Refresh,
                     onClick = onRestoreSamplesClick,
                     isPrimary = false,
+                    enabled = !isLoadingFile,
                     modifier = Modifier.testTag("restore_samples_button")
                 )
             }
@@ -954,7 +996,7 @@ private fun CreateNewNotebookDialog(
         Triple("Julia 1.10", "Julia", "julia"),
         Triple("R 4.3 Statistical", "R", "ir")
     )
-    var selectedKernelIdx by rememberSaveable { mutableStateOf(0) }
+    var selectedKernelIdx by rememberSaveable { mutableIntStateOf(0) }
 
     LiquidGlassDialog(
         title = stringResource(R.string.dialog_new_notebook_title),
@@ -990,6 +1032,7 @@ private fun CreateNewNotebookDialog(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .minimumInteractiveComponentSize()
                             .clip(RoundedCornerShape(12.dp))
                             .background(
                                 if (selected) {
@@ -1007,12 +1050,18 @@ private fun CreateNewNotebookDialog(
                                 },
                                 shape = RoundedCornerShape(12.dp)
                             )
-                            .clickable { selectedKernelIdx = idx }
+                            .pressableFeedback(
+                                pressedScale = 0.97f,
+                                onClick = { selectedKernelIdx = idx }
+                            )
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
                             Icon(
                                 imageVector = Icons.Outlined.AutoAwesome,
                                 contentDescription = null,
@@ -1025,14 +1074,19 @@ private fun CreateNewNotebookDialog(
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
                                 ),
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
+
+                        Spacer(modifier = Modifier.width(8.dp))
 
                         Text(
                             text = lang,
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1
                         )
                     }
                 }

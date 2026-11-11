@@ -10,7 +10,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,7 +39,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.outlined.CleaningServices
 import androidx.compose.material.icons.outlined.Code
@@ -51,14 +49,15 @@ import androidx.compose.material.icons.outlined.Notes
 import androidx.compose.material.icons.outlined.SaveAs
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Toc
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,7 +68,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -81,10 +79,13 @@ import com.example.R
 import com.example.model.CellType
 import com.example.model.NotebookCell
 import com.example.ui.components.CellItemCard
+import com.example.ui.components.FileErrorStateBanner
 import com.example.ui.components.LiquidGlassCard
 import com.example.ui.components.LiquidGlassDialog
+import com.example.ui.components.LiquidGlassIconButton
 import com.example.ui.components.LiquidGlassPillButton
 import com.example.ui.components.ThemeModeSegmentedToggle
+import com.example.ui.components.pressableFeedback
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalLiquidGlassColors
 import com.example.ui.theme.ThemeMode
@@ -95,6 +96,8 @@ import kotlinx.coroutines.launch
 fun NotebookEditorScreen(
     state: ActiveNotebookState,
     themeMode: ThemeMode,
+    fileError: String?,
+    onDismissFileError: () -> Unit,
     onThemeModeChange: (ThemeMode) -> Unit,
     onNavigateBack: () -> Unit,
     onSaveClick: () -> Unit,
@@ -135,7 +138,6 @@ fun NotebookEditorScreen(
         }
     }
 
-    // Mandatory BackHandler for secondary screen
     BackHandler(onBack = handleBackNavigation)
 
     BoxWithConstraints(
@@ -146,7 +148,6 @@ fun NotebookEditorScreen(
         val isWideScreen = maxWidth >= 760.dp
 
         Column(modifier = Modifier.fillMaxSize()) {
-            // Top Liquid Glass Command Bar
             EditorTopGlassBar(
                 state = state,
                 themeMode = themeMode,
@@ -163,6 +164,23 @@ fun NotebookEditorScreen(
                 onThemeModeChange = onThemeModeChange,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
             )
+
+            // File Error Banner if opening another file from inside Editor fails
+            AnimatedVisibility(
+                visible = !fileError.isNullOrBlank(),
+                enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(),
+                exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut()
+            ) {
+                FileErrorStateBanner(
+                    errorMessage = fileError ?: "",
+                    onSelectAnotherFile = {
+                        onDismissFileError()
+                        onOpenAnotherFileClick()
+                    },
+                    onDismiss = onDismissFileError,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                )
+            }
 
             // Expandable Search Bar
             AnimatedVisibility(
@@ -183,7 +201,13 @@ fun NotebookEditorScreen(
                             .fillMaxWidth()
                             .testTag("editor_search_input"),
                         singleLine = true,
-                        placeholder = { Text("Search code or markdown in ${state.displayName}…") },
+                        placeholder = {
+                            Text(
+                                text = "Search code or markdown in ${state.displayName}…",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Outlined.Search,
@@ -192,12 +216,11 @@ fun NotebookEditorScreen(
                             )
                         },
                         trailingIcon = {
-                            IconButton(onClick = onToggleSearchBar) {
-                                Icon(
-                                    imageVector = Icons.Filled.Clear,
-                                    contentDescription = "Close search"
-                                )
-                            }
+                            LiquidGlassIconButton(
+                                icon = Icons.Filled.Clear,
+                                contentDescription = "Close search",
+                                onClick = onToggleSearchBar
+                            )
                         },
                         shape = RoundedCornerShape(16.dp),
                         colors = OutlinedTextFieldDefaults.colors(
@@ -239,7 +262,6 @@ fun NotebookEditorScreen(
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 if (isWideScreen) {
-                    // Persistent Left Outline & File Inspector Pane on Tablets/Foldables
                     Column(
                         modifier = Modifier
                             .width(260.dp)
@@ -259,7 +281,6 @@ fun NotebookEditorScreen(
                     }
                 }
 
-                // Right / Main Notebook Content or Raw JSON Editor
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -322,9 +343,9 @@ fun NotebookEditorScreen(
                         }
                     }
 
-                    // Floating Liquid Glass Bottom Action Bar
                     FloatingEditorBottomDock(
                         isDirty = state.isDirty,
+                        isSaving = state.isSaving,
                         onAddCodeCell = {
                             onAddCellAt(state.notebook.cells.size, CellType.CODE)
                             coroutineScope.launch {
@@ -400,9 +421,10 @@ fun NotebookEditorScreen(
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
+                        .minimumInteractiveComponentSize()
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable { showUnsavedExitDialog = false }
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .pressableFeedback(onClick = { showUnsavedExitDialog = false })
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
                         .testTag("keep_editing_button")
                 )
             }
@@ -434,43 +456,41 @@ private fun EditorTopGlassBar(
         modifier = modifier.fillMaxWidth(),
         cornerRadius = 22.dp,
         elevated = true,
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Back Button + File Title (tap to rename)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
-                    IconButton(
+                    LiquidGlassIconButton(
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back to Home",
                         onClick = onBackClick,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .testTag("back_to_home_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back to Home",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.testTag("back_to_home_button")
+                    )
 
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(2.dp))
 
                     Column(
                         modifier = Modifier
                             .weight(1f)
+                            .minimumInteractiveComponentSize()
                             .clip(RoundedCornerShape(10.dp))
-                            .clickable { onRenameClick() }
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .pressableFeedback(
+                                pressedScale = 0.97f,
+                                onClick = onRenameClick
+                            )
+                            .padding(horizontal = 6.dp, vertical = 4.dp)
                             .testTag("rename_file_button")
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -499,10 +519,10 @@ private fun EditorTopGlassBar(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             val statusColor = if (state.isDirty) glass.badgeDirty else glass.badgeSaved
-                            val statusText = if (state.isDirty) {
-                                stringResource(R.string.unsaved_changes)
-                            } else {
-                                stringResource(R.string.saved_clean)
+                            val statusText = when {
+                                state.isSaving -> "Saving…"
+                                state.isDirty -> stringResource(R.string.unsaved_changes)
+                                else -> stringResource(R.string.saved_clean)
                             }
                             Box(
                                 modifier = Modifier
@@ -521,59 +541,43 @@ private fun EditorTopGlassBar(
                     }
                 }
 
-                // Right Quick Icons: Search, Outline, Raw JSON, Theme
+                // Right Quick Icons (48dp touch targets)
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
+                    LiquidGlassIconButton(
+                        icon = Icons.Outlined.Search,
+                        contentDescription = "Search inside notebook",
                         onClick = onToggleSearchBar,
-                        modifier = Modifier
-                            .size(38.dp)
-                            .testTag("toggle_search_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Search,
-                            contentDescription = "Search inside notebook",
-                            tint = if (state.isSearchBarVisible) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        )
-                    }
+                        tint = if (state.isSearchBarVisible) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.testTag("toggle_search_button")
+                    )
 
                     if (!isWideScreen) {
-                        IconButton(
+                        LiquidGlassIconButton(
+                            icon = Icons.Outlined.Toc,
+                            contentDescription = "Notebook outline",
                             onClick = onToggleOutline,
-                            modifier = Modifier
-                                .size(38.dp)
-                                .testTag("toggle_outline_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Toc,
-                                contentDescription = "Notebook outline",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    IconButton(
-                        onClick = onToggleRawJsonMode,
-                        modifier = Modifier
-                            .size(38.dp)
-                            .testTag("toggle_raw_json_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Code,
-                            contentDescription = "Inspect Raw .ipynb JSON",
-                            tint = if (state.isRawJsonMode) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            }
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.testTag("toggle_outline_button")
                         )
                     }
+
+                    LiquidGlassIconButton(
+                        icon = Icons.Outlined.Code,
+                        contentDescription = "Inspect Raw .ipynb JSON",
+                        onClick = onToggleRawJsonMode,
+                        tint = if (state.isRawJsonMode) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.testTag("toggle_raw_json_button")
+                    )
 
                     if (isWideScreen) {
                         ThemeModeSegmentedToggle(
@@ -593,9 +597,10 @@ private fun EditorTopGlassBar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 FileActionChip(
-                    label = stringResource(R.string.action_save),
+                    label = if (state.isSaving) "Saving…" else stringResource(R.string.action_save),
                     icon = Icons.Filled.Save,
                     isHighlighted = state.isDirty,
+                    isLoading = state.isSaving,
                     onClick = onSaveClick,
                     testTag = "save_file_button"
                 )
@@ -656,7 +661,8 @@ private fun FileActionChip(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     isHighlighted: Boolean,
     onClick: () -> Unit,
-    testTag: String
+    testTag: String,
+    isLoading: Boolean = false
 ) {
     val glass = LocalLiquidGlassColors.current
     val bgColor = if (isHighlighted) {
@@ -673,6 +679,7 @@ private fun FileActionChip(
     Row(
         modifier = Modifier
             .testTag(testTag)
+            .minimumInteractiveComponentSize()
             .clip(RoundedCornerShape(12.dp))
             .background(bgColor)
             .border(
@@ -680,21 +687,35 @@ private fun FileActionChip(
                 color = if (isHighlighted) MaterialTheme.colorScheme.primary else glass.glassBorderMid,
                 shape = RoundedCornerShape(12.dp)
             )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 7.dp),
+            .pressableFeedback(
+                enabled = !isLoading,
+                pressedScale = 0.95f,
+                isPrimaryHaptic = isHighlighted,
+                onClick = onClick
+            )
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = if (isHighlighted) fgColor else MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(16.dp)
-        )
+        if (isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(15.dp),
+                strokeWidth = 2.dp,
+                color = fgColor
+            )
+        } else {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (isHighlighted) fgColor else MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp)
+            )
+        }
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = fgColor
+            color = fgColor,
+            maxLines = 1
         )
     }
 }
@@ -716,7 +737,8 @@ private fun NotebookOutlineCard(
             Text(
                 text = "Cell Navigator (${cells.size})",
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.primary
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1
             )
             Spacer(modifier = Modifier.height(8.dp))
             LazyColumn(
@@ -739,17 +761,22 @@ private fun NotebookOutlineCard(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .minimumInteractiveComponentSize()
                             .clip(RoundedCornerShape(10.dp))
                             .background(badgeColor.copy(alpha = 0.08f))
-                            .clickable { onJumpToCell(index) }
-                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                            .pressableFeedback(
+                                pressedScale = 0.97f,
+                                onClick = { onJumpToCell(index) }
+                            )
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = "#${index + 1}",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                             color = badgeColor,
-                            modifier = Modifier.width(28.dp)
+                            modifier = Modifier.width(30.dp),
+                            maxLines = 1
                         )
                         Text(
                             text = firstLine,
@@ -787,11 +814,13 @@ private fun RawJsonEditorPane(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Raw .ipynb JSON Source",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = jsonError ?: "Valid nbformat v4 JSON — changes sync directly to cells",
@@ -800,9 +829,13 @@ private fun RawJsonEditorPane(
                             MaterialTheme.colorScheme.error
                         } else {
                             glass.badgeSaved
-                        }
+                        },
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
+
+                Spacer(modifier = Modifier.width(8.dp))
 
                 LiquidGlassPillButton(
                     text = "Back to Cells",
@@ -840,6 +873,7 @@ private fun RawJsonEditorPane(
 @Composable
 private fun FloatingEditorBottomDock(
     isDirty: Boolean,
+    isSaving: Boolean,
     onAddCodeCell: () -> Unit,
     onAddMarkdownCell: () -> Unit,
     onSaveClick: () -> Unit,
@@ -882,6 +916,7 @@ private fun FloatingEditorBottomDock(
                 icon = Icons.Filled.Save,
                 onClick = onSaveClick,
                 isPrimary = isDirty,
+                isLoading = isSaving,
                 modifier = Modifier.testTag("dock_save_button")
             )
 
@@ -890,6 +925,7 @@ private fun FloatingEditorBottomDock(
                 icon = Icons.Outlined.SaveAs,
                 onClick = onSaveAsClick,
                 isPrimary = false,
+                enabled = !isSaving,
                 modifier = Modifier.testTag("dock_save_as_button")
             )
         }

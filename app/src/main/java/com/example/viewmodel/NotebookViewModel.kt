@@ -12,6 +12,7 @@ import com.example.model.JupyterNotebook
 import com.example.model.NotebookCell
 import com.example.ui.theme.ThemeMode
 import com.example.util.IpynbParser
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 sealed class ScreenDestination {
@@ -41,6 +43,7 @@ data class ActiveNotebookState(
     val notebook: JupyterNotebook = JupyterNotebook(),
     val activeEditingCellId: String? = null,
     val isDirty: Boolean = false,
+    val isSaving: Boolean = false,
     val isRawJsonMode: Boolean = false,
     val rawJsonDraft: String = "",
     val rawJsonError: String? = null,
@@ -80,7 +83,7 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
                 RecentFilter.ALL -> true
                 RecentFilter.PINNED -> item.isPinned
                 RecentFilter.PYTHON -> item.language.equals("Python", ignoreCase = true)
-                RecentFilter.EXTERNAL -> item.sourceUri.startsWith("content://")
+                RecentFilter.EXTERNAL -> item.sourceUri.startsWith("content://") || item.sourceUri.startsWith("file://")
             }
             matchesQuery && matchesFilter
         }
@@ -103,6 +106,12 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
 
     private val _activeNotebook = MutableStateFlow<ActiveNotebookState?>(null)
     val activeNotebook: StateFlow<ActiveNotebookState?> = _activeNotebook.asStateFlow()
+
+    private val _isLoadingFile = MutableStateFlow(false)
+    val isLoadingFile: StateFlow<Boolean> = _isLoadingFile.asStateFlow()
+
+    private val _fileError = MutableStateFlow<String?>(null)
+    val fileError: StateFlow<String?> = _fileError.asStateFlow()
 
     private val _snackbarMessage = MutableStateFlow<String?>(null)
     val snackbarMessage: StateFlow<String?> = _snackbarMessage.asStateFlow()
@@ -131,63 +140,95 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
         _snackbarMessage.value = null
     }
 
+    fun dismissFileError() {
+        _fileError.value = null
+    }
+
     fun showMessage(msg: String) {
         _snackbarMessage.value = msg
     }
 
     fun openRecentNotebook(entityId: String) {
+        if (_isLoadingFile.value) return
         viewModelScope.launch {
+            _isLoadingFile.value = true
+            _fileError.value = null
             val entity = repository.getNotebookEntityById(entityId)
             if (entity == null) {
-                _snackbarMessage.value = "Notebook entry could not be found."
+                _isLoadingFile.value = false
+                _fileError.value = "Notebook entry could not be found in recent history."
                 return@launch
             }
-            val parsed = IpynbParser.parse(entity.notebookJson).getOrElse {
-                _snackbarMessage.value = "Failed to parse notebook JSON: ${it.message}"
-                return@launch
+            val parsedResult = withContext(Dispatchers.Default) {
+                IpynbParser.parse(entity.notebookJson)
             }
-            _activeNotebook.value = ActiveNotebookState(
-                entityId = entity.id,
-                displayName = entity.displayName,
-                sourceUri = entity.sourceUri,
-                notebook = parsed,
-                activeEditingCellId = null,
-                isDirty = false,
-                isRawJsonMode = false,
-                rawJsonDraft = entity.notebookJson,
-                lastSavedTimestamp = entity.lastModifiedAt
+            parsedResult.fold(
+                onSuccess = { parsed ->
+                    _activeNotebook.value = ActiveNotebookState(
+                        entityId = entity.id,
+                        displayName = entity.displayName,
+                        sourceUri = entity.sourceUri,
+                        notebook = parsed,
+                        activeEditingCellId = null,
+                        isDirty = false,
+                        isSaving = false,
+                        isRawJsonMode = false,
+                        rawJsonDraft = entity.notebookJson,
+                        lastSavedTimestamp = entity.lastModifiedAt
+                    )
+                    _isLoadingFile.value = false
+                    _currentScreen.value = ScreenDestination.Editor(entity.id)
+                },
+                onFailure = { err ->
+                    _isLoadingFile.value = false
+                    _fileError.value = "Failed to parse notebook JSON: ${err.message}"
+                }
             )
-            _currentScreen.value = ScreenDestination.Editor(entity.id)
         }
     }
 
     fun openExternalFileUri(uri: Uri) {
+        if (_isLoadingFile.value) return
         viewModelScope.launch {
+            _isLoadingFile.value = true
+            _fileError.value = null
             repository.openExternalUri(uri)
                 .onSuccess { entity ->
-                    val parsed = IpynbParser.parse(entity.notebookJson).getOrDefault(JupyterNotebook())
+                    val parsed = withContext(Dispatchers.Default) {
+                        IpynbParser.parse(entity.notebookJson).getOrDefault(JupyterNotebook())
+                    }
                     _activeNotebook.value = ActiveNotebookState(
                         entityId = entity.id,
                         displayName = entity.displayName,
                         sourceUri = entity.sourceUri,
                         notebook = parsed,
                         isDirty = false,
+                        isSaving = false,
                         rawJsonDraft = entity.notebookJson,
                         lastSavedTimestamp = entity.lastModifiedAt
                     )
+                    _isLoadingFile.value = false
                     _currentScreen.value = ScreenDestination.Editor(entity.id)
                     _snackbarMessage.value = "Opened ${entity.displayName}"
                 }
                 .onFailure { err ->
-                    _snackbarMessage.value = err.message ?: "Could not open .ipynb file"
+                    _isLoadingFile.value = false
+                    val friendlyError = err.message ?: "The selected file could not be read or is not a valid .ipynb notebook."
+                    _fileError.value = friendlyError
+                    _snackbarMessage.value = "Unable to open file"
                 }
         }
     }
 
     fun createNewNotebook(fileName: String, kernelDisplayName: String, language: String) {
+        if (_isLoadingFile.value) return
         viewModelScope.launch {
+            _isLoadingFile.value = true
+            _fileError.value = null
             val entity = repository.createNewNotebook(fileName, kernelDisplayName, language)
-            val parsed = IpynbParser.parse(entity.notebookJson).getOrDefault(JupyterNotebook())
+            val parsed = withContext(Dispatchers.Default) {
+                IpynbParser.parse(entity.notebookJson).getOrDefault(JupyterNotebook())
+            }
             _activeNotebook.value = ActiveNotebookState(
                 entityId = entity.id,
                 displayName = entity.displayName,
@@ -195,9 +236,11 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
                 notebook = parsed,
                 activeEditingCellId = parsed.cells.lastOrNull()?.id,
                 isDirty = false,
+                isSaving = false,
                 rawJsonDraft = entity.notebookJson,
                 lastSavedTimestamp = entity.lastModifiedAt
             )
+            _isLoadingFile.value = false
             _currentScreen.value = ScreenDestination.Editor(entity.id)
             _snackbarMessage.value = "Created ${entity.displayName}"
         }
@@ -241,17 +284,19 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /**
+     * Updates cell source in-memory without running full JSON serialization on the main thread
+     * on every keystroke, eliminating layout/recomposition jank during typing.
+     */
     fun updateCellSource(cellId: String, newSource: String) {
         _activeNotebook.update { state ->
             if (state == null) return@update null
             val updatedCells = state.notebook.cells.map { cell ->
                 if (cell.id == cellId) cell.copy(source = newSource) else cell
             }
-            val updatedNotebook = state.notebook.copy(cells = updatedCells)
             state.copy(
-                notebook = updatedNotebook,
-                isDirty = true,
-                rawJsonDraft = IpynbParser.serialize(updatedNotebook)
+                notebook = state.notebook.copy(cells = updatedCells),
+                isDirty = true
             )
         }
     }
@@ -267,11 +312,9 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
                     )
                 } else cell
             }
-            val updatedNotebook = state.notebook.copy(cells = updatedCells)
             state.copy(
-                notebook = updatedNotebook,
-                isDirty = true,
-                rawJsonDraft = IpynbParser.serialize(updatedNotebook)
+                notebook = state.notebook.copy(cells = updatedCells),
+                isDirty = true
             )
         }
     }
@@ -289,12 +332,10 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
             val mutable = state.notebook.cells.toMutableList()
             val targetIdx = index.coerceIn(0, mutable.size)
             mutable.add(targetIdx, newCell)
-            val updatedNotebook = state.notebook.copy(cells = mutable)
             state.copy(
-                notebook = updatedNotebook,
+                notebook = state.notebook.copy(cells = mutable),
                 activeEditingCellId = newId,
-                isDirty = true,
-                rawJsonDraft = IpynbParser.serialize(updatedNotebook)
+                isDirty = true
             )
         }
     }
@@ -309,12 +350,10 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
             val copyCell = original.copy(id = copyId)
             val mutable = state.notebook.cells.toMutableList()
             mutable.add(idx + 1, copyCell)
-            val updatedNotebook = state.notebook.copy(cells = mutable)
             state.copy(
-                notebook = updatedNotebook,
+                notebook = state.notebook.copy(cells = mutable),
                 activeEditingCellId = copyId,
-                isDirty = true,
-                rawJsonDraft = IpynbParser.serialize(updatedNotebook)
+                isDirty = true
             )
         }
     }
@@ -329,11 +368,9 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
             val mutable = state.notebook.cells.toMutableList()
             val item = mutable.removeAt(currentIdx)
             mutable.add(targetIdx, item)
-            val updatedNotebook = state.notebook.copy(cells = mutable)
             state.copy(
-                notebook = updatedNotebook,
-                isDirty = true,
-                rawJsonDraft = IpynbParser.serialize(updatedNotebook)
+                notebook = state.notebook.copy(cells = mutable),
+                isDirty = true
             )
         }
     }
@@ -346,12 +383,10 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
                 return@update state
             }
             val updatedCells = state.notebook.cells.filterNot { it.id == cellId }
-            val updatedNotebook = state.notebook.copy(cells = updatedCells)
             state.copy(
-                notebook = updatedNotebook,
+                notebook = state.notebook.copy(cells = updatedCells),
                 activeEditingCellId = if (state.activeEditingCellId == cellId) null else state.activeEditingCellId,
-                isDirty = true,
-                rawJsonDraft = IpynbParser.serialize(updatedNotebook)
+                isDirty = true
             )
         }
     }
@@ -372,64 +407,73 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
             val updatedCells = state.notebook.cells.map { cell ->
                 cell.copy(outputs = emptyList(), executionCount = null)
             }
-            val updatedNotebook = state.notebook.copy(cells = updatedCells)
             state.copy(
-                notebook = updatedNotebook,
-                isDirty = true,
-                rawJsonDraft = IpynbParser.serialize(updatedNotebook)
+                notebook = state.notebook.copy(cells = updatedCells),
+                isDirty = true
             )
         }
         _snackbarMessage.value = "Cleared all cell outputs"
     }
 
     fun toggleRawJsonMode() {
-        _activeNotebook.update { state ->
-            if (state == null) return@update null
-            if (!state.isRawJsonMode) {
-                state.copy(
-                    isRawJsonMode = true,
-                    rawJsonDraft = IpynbParser.serialize(state.notebook),
-                    rawJsonError = null
-                )
+        val current = _activeNotebook.value ?: return
+        viewModelScope.launch {
+            if (!current.isRawJsonMode) {
+                val serialized = withContext(Dispatchers.Default) {
+                    IpynbParser.serialize(current.notebook)
+                }
+                _activeNotebook.update { state ->
+                    state?.copy(
+                        isRawJsonMode = true,
+                        rawJsonDraft = serialized,
+                        rawJsonError = null
+                    )
+                }
             } else {
-                val parsed = IpynbParser.parse(state.rawJsonDraft)
-                parsed.fold(
-                    onSuccess = { nb ->
-                        state.copy(
-                            notebook = nb,
-                            isRawJsonMode = false,
-                            rawJsonError = null
-                        )
-                    },
-                    onFailure = { err ->
-                        state.copy(rawJsonError = "Invalid JSON: ${err.message}")
-                    }
-                )
+                val parsed = withContext(Dispatchers.Default) {
+                    IpynbParser.parse(current.rawJsonDraft)
+                }
+                _activeNotebook.update { state ->
+                    if (state == null) return@update null
+                    parsed.fold(
+                        onSuccess = { nb ->
+                            state.copy(
+                                notebook = nb,
+                                isRawJsonMode = false,
+                                rawJsonError = null
+                            )
+                        },
+                        onFailure = { err ->
+                            state.copy(rawJsonError = "Invalid JSON: ${err.message}")
+                        }
+                    )
+                }
             }
         }
     }
 
     fun updateRawJsonDraft(newJson: String) {
         _activeNotebook.update { state ->
-            if (state == null) return@update null
-            val parsed = IpynbParser.parse(newJson)
-            parsed.fold(
-                onSuccess = { nb ->
-                    state.copy(
-                        rawJsonDraft = newJson,
-                        notebook = nb,
-                        rawJsonError = null,
-                        isDirty = true
-                    )
-                },
-                onFailure = { err ->
-                    state.copy(
-                        rawJsonDraft = newJson,
-                        rawJsonError = err.message,
-                        isDirty = true
-                    )
-                }
-            )
+            state?.copy(rawJsonDraft = newJson, isDirty = true)
+        }
+        viewModelScope.launch {
+            val parsed = withContext(Dispatchers.Default) {
+                IpynbParser.parse(newJson)
+            }
+            _activeNotebook.update { state ->
+                if (state == null || state.rawJsonDraft != newJson) return@update state
+                parsed.fold(
+                    onSuccess = { nb ->
+                        state.copy(
+                            notebook = nb,
+                            rawJsonError = null
+                        )
+                    },
+                    onFailure = { err ->
+                        state.copy(rawJsonError = err.message)
+                    }
+                )
+            }
         }
     }
 
@@ -452,7 +496,9 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
 
     fun saveCurrentNotebook(onComplete: (() -> Unit)? = null) {
         val current = _activeNotebook.value ?: return
+        if (current.isSaving) return
         viewModelScope.launch {
+            _activeNotebook.update { it?.copy(isSaving = true) }
             repository.saveNotebook(
                 entityId = current.entityId,
                 displayName = current.displayName,
@@ -463,6 +509,7 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
                     state?.copy(
                         displayName = savedEntity.displayName,
                         isDirty = false,
+                        isSaving = false,
                         lastSavedTimestamp = savedEntity.lastModifiedAt,
                         rawJsonDraft = savedEntity.notebookJson
                     )
@@ -470,6 +517,7 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
                 _snackbarMessage.value = "Saved ${savedEntity.displayName}"
                 onComplete?.invoke()
             }.onFailure { err ->
+                _activeNotebook.update { it?.copy(isSaving = false) }
                 _snackbarMessage.value = "Save failed: ${err.message}"
             }
         }
@@ -477,7 +525,9 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
 
     fun saveNotebookAsExternalUri(uri: Uri) {
         val current = _activeNotebook.value ?: return
+        if (current.isSaving) return
         viewModelScope.launch {
+            _activeNotebook.update { it?.copy(isSaving = true) }
             repository.saveNotebookAsExternalUri(
                 targetUri = uri,
                 fallbackName = current.displayName,
@@ -488,11 +538,13 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
                     displayName = savedEntity.displayName,
                     sourceUri = savedEntity.sourceUri,
                     isDirty = false,
+                    isSaving = false,
                     lastSavedTimestamp = savedEntity.lastModifiedAt,
                     rawJsonDraft = savedEntity.notebookJson
                 )
                 _snackbarMessage.value = "Saved As ${savedEntity.displayName}"
             }.onFailure { err ->
+                _activeNotebook.update { it?.copy(isSaving = false) }
                 _snackbarMessage.value = "Save As failed: ${err.message}"
             }
         }
@@ -500,7 +552,9 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
 
     fun saveNotebookAsCopy(newFileName: String) {
         val current = _activeNotebook.value ?: return
+        if (current.isSaving) return
         viewModelScope.launch {
+            _activeNotebook.update { it?.copy(isSaving = true) }
             repository.saveNotebookAsInternalCopy(
                 newDisplayName = newFileName,
                 notebook = current.notebook
@@ -510,11 +564,13 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
                     displayName = savedEntity.displayName,
                     sourceUri = savedEntity.sourceUri,
                     isDirty = false,
+                    isSaving = false,
                     lastSavedTimestamp = savedEntity.lastModifiedAt,
                     rawJsonDraft = savedEntity.notebookJson
                 )
                 _snackbarMessage.value = "Saved copy as ${savedEntity.displayName}"
             }.onFailure { err ->
+                _activeNotebook.update { it?.copy(isSaving = false) }
                 _snackbarMessage.value = "Could not save copy: ${err.message}"
             }
         }
@@ -522,8 +578,9 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
 
     fun renameCurrentNotebook(newName: String) {
         val current = _activeNotebook.value ?: return
+        if (current.isSaving) return
         viewModelScope.launch {
-            // First persist any current edits, then rename
+            _activeNotebook.update { it?.copy(isSaving = true) }
             repository.renameNotebook(current.entityId, newName)
                 .onSuccess { renamedEntity ->
                     repository.saveNotebook(
@@ -535,12 +592,14 @@ class NotebookViewModel(application: Application) : AndroidViewModel(application
                     _activeNotebook.update { state ->
                         state?.copy(
                             displayName = renamedEntity.displayName,
-                            sourceUri = renamedEntity.sourceUri
+                            sourceUri = renamedEntity.sourceUri,
+                            isSaving = false
                         )
                     }
                     _snackbarMessage.value = "Renamed to ${renamedEntity.displayName}"
                 }
                 .onFailure { err ->
+                    _activeNotebook.update { it?.copy(isSaving = false) }
                     _snackbarMessage.value = "Rename failed: ${err.message}"
                 }
         }

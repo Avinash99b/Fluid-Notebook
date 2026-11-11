@@ -14,12 +14,78 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:label="@string/app_name"
             android:theme="@style/Theme.MyApplication">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- 1. ACTION_VIEW for explicit Jupyter / JSON / binary MIME types -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/x-ipynb+json" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
+            <!-- 2. ACTION_VIEW for content:// and file:// URIs with .ipynb extension and wildcard MIME -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathSuffix=".ipynb" />
+                <data android:pathPattern=".*\\.ipynb" />
+                <data android:pathPattern=".*\\..*\\.ipynb" />
+                <data android:pathPattern=".*\\..*\\..*\\.ipynb" />
+                <data android:pathPattern=".*\\..*\\..*\\..*\\.ipynb" />
+                <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\.ipynb" />
+                <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\..*\\.ipynb" />
+            </intent-filter>
+
+            <!-- 3. ACTION_VIEW for file:// URIs when no MIME type is supplied by the file manager -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:pathSuffix=".ipynb" />
+                <data android:pathPattern=".*\\.ipynb" />
+                <data android:pathPattern=".*\\..*\\.ipynb" />
+                <data android:pathPattern=".*\\..*\\..*\\.ipynb" />
+                <data android:pathPattern=".*\\..*\\..*\\..*\\.ipynb" />
+                <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\.ipynb" />
+                <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\..*\\.ipynb" />
+            </intent-filter>
+
+            <!-- 4. ACTION_SEND for Share sheets (Drive, Files, Gmail, etc.) -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:mimeType="application/x-ipynb+json" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
     </application>

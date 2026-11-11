@@ -74,28 +74,46 @@ class NotebookRepository(
 
     suspend fun openExternalUri(uri: Uri): Result<RecentNotebookEntity> = withContext(Dispatchers.IO) {
         runCatching {
-            // Take persistable read/write permission when granted by the document provider
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(uri, flags)
-            }.onFailure {
+            val scheme = uri.scheme?.lowercase()
+            if (scheme == "content") {
+                // Take persistable read/write permission when offered by the document provider
+                val rwFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 runCatching {
-                    context.contentResolver.takePersistableUriPermission(
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
+                    context.contentResolver.takePersistableUriPermission(uri, rwFlags)
+                }.onFailure {
+                    runCatching {
+                        context.contentResolver.takePersistableUriPermission(
+                            uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
+                    }
                 }
             }
 
             val rawName = resolveDisplayName(uri) ?: "imported_notebook.ipynb"
             val normalizedName = ensureIpynbExtension(rawName)
 
-            val rawJson = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use {
-                it.readText()
-            } ?: throw IllegalStateException("Unable to read selected file stream.")
+            val rawJson = when (scheme) {
+                "file" -> {
+                    val filePath = uri.path
+                        ?: throw IllegalArgumentException("Invalid file:// URI path.")
+                    val file = File(filePath)
+                    if (!file.exists() || !file.canRead()) {
+                        throw IllegalStateException("Cannot read file '$rawName'. Permission denied or file does not exist.")
+                    }
+                    file.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                }
+                else -> {
+                    context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use {
+                        it.readText()
+                    } ?: throw IllegalStateException("Unable to open stream for '$rawName'. The file may have been moved or deleted.")
+                }
+            }
 
-            val parsedNotebook = IpynbParser.parse(rawJson).getOrElse {
-                throw IllegalArgumentException("Selected file is not a valid Jupyter (.ipynb) JSON document.")
+            val parsedNotebook = IpynbParser.parse(rawJson).getOrElse { parseErr ->
+                throw IllegalArgumentException(
+                    "Could not parse '$rawName' as a valid .ipynb notebook: ${parseErr.message}"
+                )
             }
 
             val serialized = IpynbParser.serialize(parsedNotebook)
@@ -194,18 +212,27 @@ class NotebookRepository(
             val serialized = IpynbParser.serialize(notebook)
             val normalizedName = ensureIpynbExtension(displayName)
 
-            // If backed by an external content:// URI, write directly to it when writable
-            if (sourceUri.startsWith("content://")) {
-                runCatching {
-                    val uri = Uri.parse(sourceUri)
-                    context.contentResolver.openOutputStream(uri, "wt")?.use { out ->
-                        out.write(serialized.toByteArray(Charsets.UTF_8))
-                        out.flush()
+            // Write back to content://, file://, or internal app storage
+            when {
+                sourceUri.startsWith("content://") -> {
+                    runCatching {
+                        val uri = Uri.parse(sourceUri)
+                        context.contentResolver.openOutputStream(uri, "wt")?.use { out ->
+                            out.write(serialized.toByteArray(Charsets.UTF_8))
+                            out.flush()
+                        }
                     }
                 }
-            } else {
-                val localFile = File(context.filesDir, normalizedName)
-                runCatching { localFile.writeText(serialized) }
+                sourceUri.startsWith("file://") -> {
+                    runCatching {
+                        val uri = Uri.parse(sourceUri)
+                        uri.path?.let { File(it).writeText(serialized, Charsets.UTF_8) }
+                    }
+                }
+                else -> {
+                    val localFile = File(context.filesDir, normalizedName)
+                    runCatching { localFile.writeText(serialized, Charsets.UTF_8) }
+                }
             }
 
             val existing = dao.getNotebookById(entityId)

@@ -15,7 +15,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,7 +33,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.ArrowUpward
@@ -47,11 +45,11 @@ import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Notes
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -67,6 +65,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -118,34 +117,40 @@ fun CellItemCard(
         contentPadding = PaddingValues(0.dp)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // Cell Top Control Strip
+            // Cell Top Control Strip (responsive to 1.3x font scale and narrow screens)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(accentColor.copy(alpha = if (glass.isDark) 0.12f else 0.08f))
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Left badge: In [x] / Markdown + Type Switcher
+                // Left badge: In [x] / Markdown + Type Switcher (48dp touch target)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f, fill = false)
                 ) {
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .minimumInteractiveComponentSize()
+                            .clip(RoundedCornerShape(10.dp))
                             .background(accentColor.copy(alpha = 0.20f))
-                            .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                            .clickable {
-                                val nextType = when (cell.cellType) {
-                                    CellType.CODE -> CellType.MARKDOWN
-                                    CellType.MARKDOWN -> CellType.CODE
-                                    CellType.RAW -> CellType.CODE
+                            .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                            .pressableFeedback(
+                                pressedScale = 0.94f,
+                                onClick = {
+                                    val nextType = when (cell.cellType) {
+                                        CellType.CODE -> CellType.MARKDOWN
+                                        CellType.MARKDOWN -> CellType.CODE
+                                        CellType.RAW -> CellType.CODE
+                                    }
+                                    onChangeCellType(nextType)
                                 }
-                                onChangeCellType(nextType)
-                            }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
                     ) {
                         val badgeLabel = when (cell.cellType) {
                             CellType.CODE -> "In [${cell.executionCount?.toString() ?: " "}]:"
@@ -158,98 +163,75 @@ fun CellItemCard(
                                 fontFamily = JetBrainsMonoFontFamily,
                                 fontWeight = FontWeight.Bold
                             ),
-                            color = accentColor
+                            color = accentColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
                     Text(
                         text = cell.cellType.displayLabel,
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                // Right Cell Action Icons
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
+                // Right Cell Action Icons (48dp touch targets, scrollable if screen is narrow)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    LiquidGlassIconButton(
+                        icon = if (isEditing) Icons.Filled.Check else Icons.Outlined.Edit,
+                        contentDescription = if (isEditing) "Finish editing cell" else "Edit cell",
                         onClick = onToggleEdit,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .testTag("edit_cell_button_$cellIndex")
-                    ) {
-                        Icon(
-                            imageVector = if (isEditing) Icons.Filled.Check else Icons.Outlined.Edit,
-                            contentDescription = if (isEditing) "Finish editing cell" else "Edit cell",
-                            tint = if (isEditing) accentColor else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                        tint = if (isEditing) accentColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                        iconSize = 18.dp,
+                        modifier = Modifier.testTag("edit_cell_button_$cellIndex")
+                    )
 
                     if (cellIndex > 0) {
-                        IconButton(
+                        LiquidGlassIconButton(
+                            icon = Icons.Outlined.ArrowUpward,
+                            contentDescription = "Move cell up",
                             onClick = onMoveUp,
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.ArrowUpward,
-                                contentDescription = "Move cell up",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(17.dp)
-                            )
-                        }
+                            iconSize = 18.dp
+                        )
                     }
 
                     if (cellIndex < totalCells - 1) {
-                        IconButton(
+                        LiquidGlassIconButton(
+                            icon = Icons.Outlined.ArrowDownward,
+                            contentDescription = "Move cell down",
                             onClick = onMoveDown,
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.ArrowDownward,
-                                contentDescription = "Move cell down",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(17.dp)
-                            )
-                        }
+                            iconSize = 18.dp
+                        )
                     }
 
-                    IconButton(
+                    LiquidGlassIconButton(
+                        icon = Icons.Outlined.ContentCopy,
+                        contentDescription = "Duplicate cell",
                         onClick = onDuplicateCell,
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.ContentCopy,
-                            contentDescription = "Duplicate cell",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
+                        iconSize = 17.dp
+                    )
 
-                    IconButton(
+                    LiquidGlassIconButton(
+                        icon = if (cell.isCollapsed) Icons.Outlined.ExpandMore else Icons.Outlined.ExpandLess,
+                        contentDescription = if (cell.isCollapsed) "Expand cell" else "Collapse cell",
                         onClick = onToggleCollapse,
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (cell.isCollapsed) Icons.Outlined.ExpandMore else Icons.Outlined.ExpandLess,
-                            contentDescription = if (cell.isCollapsed) "Expand cell" else "Collapse cell",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                        iconSize = 19.dp
+                    )
 
-                    IconButton(
+                    LiquidGlassIconButton(
+                        icon = Icons.Outlined.DeleteOutline,
+                        contentDescription = "Delete cell",
                         onClick = onDeleteCell,
-                        modifier = Modifier
-                            .size(34.dp)
-                            .testTag("delete_cell_button_$cellIndex")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.DeleteOutline,
-                            contentDescription = "Delete cell",
-                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.85f),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.85f),
+                        iconSize = 18.dp,
+                        modifier = Modifier.testTag("delete_cell_button_$cellIndex")
+                    )
                 }
             }
 
@@ -312,7 +294,9 @@ fun CellItemCard(
 
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -328,6 +312,8 @@ fun CellItemCard(
                                             onClick = { onChangeCellType(CellType.MARKDOWN) }
                                         )
                                     }
+
+                                    Spacer(modifier = Modifier.width(12.dp))
 
                                     LiquidGlassPillButton(
                                         text = "Done",
@@ -358,7 +344,10 @@ fun CellItemCard(
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clickable { onToggleEdit() }
+                                            .pressableFeedback(
+                                                pressedScale = 0.99f,
+                                                onClick = onToggleEdit
+                                            )
                                             .padding(14.dp)
                                     ) {
                                         Text(
@@ -386,67 +375,77 @@ fun CellItemCard(
                         )
                     }
 
-                    // Subtle Bottom Quick-Insert Strip
+                    // Bottom Quick-Insert Strip (48dp touch targets with pressable feedback)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                            .padding(horizontal = 12.dp, vertical = 2.dp),
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
                             modifier = Modifier
+                                .minimumInteractiveComponentSize()
                                 .clip(CircleShape)
-                                .clickable { onInsertBelow(CellType.CODE) }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                .pressableFeedback(
+                                    pressedScale = 0.94f,
+                                    onClick = { onInsertBelow(CellType.CODE) }
+                                )
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.Add,
                                 contentDescription = null,
                                 tint = glass.badgeCode,
-                                modifier = Modifier.size(13.dp)
+                                modifier = Modifier.size(14.dp)
                             )
                             Icon(
                                 imageVector = Icons.Outlined.Code,
                                 contentDescription = "Insert code cell below",
                                 tint = glass.badgeCode,
-                                modifier = Modifier.size(13.dp)
+                                modifier = Modifier.size(14.dp)
                             )
-                            Spacer(modifier = Modifier.width(3.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "+Code",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = glass.badgeCode
+                                color = glass.badgeCode,
+                                maxLines = 1
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
 
                         Row(
                             modifier = Modifier
+                                .minimumInteractiveComponentSize()
                                 .clip(CircleShape)
-                                .clickable { onInsertBelow(CellType.MARKDOWN) }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                .pressableFeedback(
+                                    pressedScale = 0.94f,
+                                    onClick = { onInsertBelow(CellType.MARKDOWN) }
+                                )
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.Add,
                                 contentDescription = null,
                                 tint = glass.badgeMarkdown,
-                                modifier = Modifier.size(13.dp)
+                                modifier = Modifier.size(14.dp)
                             )
                             Icon(
                                 imageVector = Icons.Outlined.Notes,
                                 contentDescription = "Insert markdown cell below",
                                 tint = glass.badgeMarkdown,
-                                modifier = Modifier.size(13.dp)
+                                modifier = Modifier.size(14.dp)
                             )
-                            Spacer(modifier = Modifier.width(3.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "+Markdown",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = glass.badgeMarkdown
+                                color = glass.badgeMarkdown,
+                                maxLines = 1
                             )
                         }
                     }
@@ -466,16 +465,22 @@ private fun CellTypeChip(
     val fg = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
     Box(
         modifier = Modifier
+            .minimumInteractiveComponentSize()
             .clip(CircleShape)
             .background(bg)
             .border(1.dp, fg.copy(alpha = 0.4f), CircleShape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .pressableFeedback(
+                pressedScale = 0.95f,
+                onClick = onClick
+            )
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
-            color = fg
+            color = fg,
+            maxLines = 1
         )
     }
 }
@@ -505,10 +510,12 @@ private fun CodeCellViewContent(
         modifier = Modifier
             .fillMaxWidth()
             .background(glass.codeBackground)
-            .clickable { onClickToEdit() }
+            .pressableFeedback(
+                pressedScale = 0.992f,
+                onClick = onClickToEdit
+            )
             .padding(vertical = 12.dp, horizontal = 12.dp)
     ) {
-        // Line numbers gutter
         Text(
             text = lines,
             style = TextStyle(
@@ -520,7 +527,6 @@ private fun CodeCellViewContent(
             modifier = Modifier.padding(end = 12.dp)
         )
 
-        // Vertically aligned, horizontally scrollable syntax-highlighted code
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -550,7 +556,10 @@ private fun MarkdownCellViewContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClickToEdit() }
+            .pressableFeedback(
+                pressedScale = 0.992f,
+                onClick = onClickToEdit
+            )
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
@@ -803,7 +812,8 @@ private fun CellOutputsSection(
                             color = if (isErr) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier
                                 .padding(end = 10.dp, top = 2.dp)
-                                .width(48.dp)
+                                .width(52.dp),
+                            maxLines = 1
                         )
                         Text(
                             text = output.text.trimEnd(),
@@ -828,7 +838,8 @@ private fun CellOutputsSection(
                             color = glass.syntaxNumber,
                             modifier = Modifier
                                 .padding(end = 10.dp, top = 2.dp)
-                                .width(54.dp)
+                                .width(58.dp),
+                            maxLines = 1
                         )
                         Column(modifier = Modifier.weight(1f)) {
                             if (!output.plainText.isNullOrBlank()) {
